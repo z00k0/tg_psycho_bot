@@ -1,0 +1,12 @@
+{
+	admin 127.0.0.1:2019
+}
+
+{$BOT_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy bot:8080 {
+		health_uri /healthz
+		health_interval 10s
+		health_timeout 2s
+	}
+}

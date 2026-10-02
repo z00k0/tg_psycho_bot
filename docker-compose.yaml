@@ -1,0 +1,65 @@
+name: tg-psyco
+
+services:
+  bot:
+    image: tg-psyco-bot:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    command: ["tg-psyco", "serve"]
+    init: true
+    restart: unless-stopped
+    environment:
+      BOT_TOKEN_FILE: /run/secrets/bot_token
+      WEBHOOK_SECRET_FILE: /run/secrets/webhook_secret
+      BASE_WEBHOOK_URL: https://${BOT_DOMAIN:?set BOT_DOMAIN in .env}
+      WEBHOOK_PATH: ${WEBHOOK_PATH:-/webhook}
+      HOST: 0.0.0.0
+      PORT: "8080"
+      DATABASE_PATH: /data/dictionary.sqlite3
+      SEARCH_RESULT_LIMIT: ${SEARCH_RESULT_LIMIT:-5}
+      MAX_QUERY_LENGTH: ${MAX_QUERY_LENGTH:-200}
+    secrets:
+      - bot_token
+      - webhook_secret
+    volumes:
+      - dictionary_data:/data
+    ports:
+      - "127.0.0.1:${BOT_BIND_PORT:-8080}:8080"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,uid=10001,gid=10001,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/readyz', timeout=2).read()",
+        ]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+    deploy:
+      replicas: 1
+
+volumes:
+  dictionary_data:
+
+secrets:
+  bot_token:
+    file: ./secrets/bot_token
+  webhook_secret:
+    file: ./secrets/webhook_secret
