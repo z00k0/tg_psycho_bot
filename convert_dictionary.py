@@ -17,11 +17,12 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-
 DASHES = "-–—"
 RUSSIAN_LETTERS = "АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ"
 LETTER_RANK = {letter: index for index, letter in enumerate(RUSSIAN_LETTERS)}
-PAGE_NUMBER_RE = re.compile(r"^\s*\d{1,4}\s*$")
+PAGE_NUMBER_RE = re.compile(r"^\s*\d{1,4}\.?\s*$")
+SECTION_MARKER_RE = re.compile(r"^(?:[А-ЯЁ]|_[А-ЯЁA-Z]_)$")
+FIGURE_CAPTION_RE = re.compile(r"^Рис\.\s*\d+[А-Яа-я]?$", re.IGNORECASE)
 SPACE_RE = re.compile(r"\s+")
 PAREN_RE = re.compile(r"\([^()]*\)")
 CYRILLIC_RE = re.compile(r"[А-ЯЁа-яё]")
@@ -127,7 +128,7 @@ def is_heading_term(term: str) -> bool:
 def candidate_at(lines: list[str], index: int) -> Candidate | None:
     if not lines[index]:
         return None
-    if re.fullmatch(r"[А-ЯЁ]", lines[index]):
+    if SECTION_MARKER_RE.fullmatch(lines[index]):
         # Alphabet section marker, not part of the following person's name.
         return None
     combined = lines[index]
@@ -193,7 +194,7 @@ def join_article_lines(lines: list[str]) -> str:
     for line in lines:
         if not line:
             continue
-        if re.fullmatch(r"[А-ЯЁ]", line):
+        if SECTION_MARKER_RE.fullmatch(line) or FIGURE_CAPTION_RE.fullmatch(line):
             continue
         if parts and parts[-1].endswith("-") and line[:1].isalpha():
             parts[-1] = parts[-1][:-1] + line
@@ -210,7 +211,7 @@ def join_article_lines(lines: list[str]) -> str:
 
 def normalized_search_term(term: str) -> str:
     value = unicodedata.normalize("NFC", term).upper().replace("Ё", "Е")
-    value = re.sub(r"[^А-ЯA-Z0-9]+", " ", value)
+    value = "".join(character if character.isalnum() else " " for character in value)
     return compact_spaces(value)
 
 
@@ -240,7 +241,7 @@ def quality_flags(term: str, definition: str) -> list[str]:
     letter_count = len(CYRILLIC_RE.findall(term))
     if letter_count <= 3:
         flags.append("short_heading")
-    if len(definition) < 20:
+    if len(definition) < 20 and not DIRECT_REFERENCE_RE.match(definition):
         flags.append("short_definition")
     if definition and definition[-1] not in ".!?»)]":
         flags.append("possibly_truncated")
@@ -249,9 +250,19 @@ def quality_flags(term: str, definition: str) -> list[str]:
     return flags
 
 
-def convert(input_path: Path) -> dict:
-    raw = input_path.read_text(encoding="utf-8-sig")
-    source_lines = raw.splitlines()
+def convert_source_lines(
+    source_lines: list[str],
+    *,
+    source_file: str,
+    candidate_line_indexes: set[int] | None = None,
+) -> dict:
+    """Convert normalized source lines into the dictionary interchange format.
+
+    ``candidate_line_indexes`` lets structured sources, such as PDF files with
+    font metadata, restrict which lines may begin an article. Plain-text input
+    keeps the original content-based heading detection by leaving it unset.
+    """
+
     lines: list[str] = []
     removed_page_numbers = 0
     for raw_line in source_lines:
@@ -265,6 +276,9 @@ def convert(input_path: Path) -> dict:
     candidates: list[Candidate] = []
     index = 0
     while index < len(lines):
+        if candidate_line_indexes is not None and index not in candidate_line_indexes:
+            index += 1
+            continue
         candidate = candidate_at(lines, index)
         if candidate is None:
             index += 1
@@ -316,7 +330,7 @@ def convert(input_path: Path) -> dict:
     return {
         "schema_version": 1,
         "language": "ru",
-        "source_file": input_path.name,
+        "source_file": source_file,
         "generated_on": date.today().isoformat(),
         "entry_count": len(entries),
         "stats": {
@@ -328,6 +342,11 @@ def convert(input_path: Path) -> dict:
         },
         "entries": entries,
     }
+
+
+def convert(input_path: Path) -> dict:
+    raw = input_path.read_text(encoding="utf-8-sig")
+    return convert_source_lines(raw.splitlines(), source_file=input_path.name)
 
 
 def main() -> None:

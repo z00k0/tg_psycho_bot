@@ -15,7 +15,7 @@ def test_imports_real_dictionary_into_sqlite(workspace_tmp_path: Path) -> None:
 
     report = import_dictionary_file(source_path, database_path)
 
-    assert report.term_count == report.fts_count == source["entry_count"] == 558
+    assert report.term_count == report.fts_count == source["entry_count"] == 1978
     with database_connection(database_path) as connection:
         assert connection.execute(
             "SELECT COUNT(*) FROM terms WHERE trim(definition) = ''"

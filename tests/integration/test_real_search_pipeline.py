@@ -41,7 +41,7 @@ def test_real_dictionary_exact_normalization_fts_and_fuzzy(
     assert exact.article.term == "АБСТРАКЦИЯ"
     assert exact.diagnostics.strategy is SearchStrategy.EXACT
     assert isinstance(yo_variant, ExactMatch)
-    assert yo_variant.article.term == "ВНИМАНИЯ ОБЪЁМ"
+    assert yo_variant.article.term == "ВНИМАНИЯ ОБЪЕМ"
     assert isinstance(substring, FtsMatches)
     assert substring.articles[0].term == "АБСТРАКЦИЯ"
     assert substring.diagnostics.strategy is SearchStrategy.FTS
