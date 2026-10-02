@@ -7,7 +7,7 @@ import pytest
 
 from app.bot.callbacks import TermCallback
 from app.bot.formatting import format_article_messages
-from app.bot.keyboards import MAX_BUTTON_TEXT_LENGTH, term_keyboard
+from app.bot.keyboards import MAX_BUTTON_TEXT_LENGTH, redirect_keyboard, term_keyboard
 from app.search.models import DictionaryArticle
 
 
@@ -94,3 +94,11 @@ def test_long_button_text_is_readable_and_bounded() -> None:
 
     assert len(text) == MAX_BUTTON_TEXT_LENGTH
     assert text.endswith("…")
+
+
+def test_redirect_keyboard_uses_target_article_callback() -> None:
+    keyboard = redirect_keyboard(1636, "СТЕРЕОПСИС")
+    button = keyboard.inline_keyboard[0][0]
+
+    assert button.text == "Перейти: СТЕРЕОПСИС"
+    assert button.callback_data == "term:1636"

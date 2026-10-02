@@ -9,6 +9,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from app.bot.callbacks import TermCallback
 
 MAX_BUTTON_TEXT_LENGTH = 64
+REDIRECT_BUTTON_PREFIX = "Перейти: "
 
 
 def _button_text(term: str) -> str:
@@ -37,3 +38,9 @@ def term_keyboard(
             ]
         )
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def redirect_keyboard(article_id: int, term: str) -> InlineKeyboardMarkup:
+    """Build a single button that opens the target of a dictionary redirect."""
+
+    return term_keyboard(((article_id, f"{REDIRECT_BUTTON_PREFIX}{term}"),))

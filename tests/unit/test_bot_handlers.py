@@ -44,6 +44,7 @@ def article(
     article_id: int = 1,
     term: str = "ПАМЯТЬ",
     definition: str = "Текст",
+    redirect_to: str | None = None,
 ) -> DictionaryArticle:
     return DictionaryArticle(
         id=article_id,
@@ -51,7 +52,7 @@ def article(
         term_normalized=term.casefold().replace("ё", "е"),
         heading=term,
         definition=definition,
-        redirect_to=None,
+        redirect_to=redirect_to,
         letter=term[0],
         quality_flags=(),
     )
@@ -76,15 +77,20 @@ class FakeGateway:
         *,
         result: SearchResult | None = None,
         stored_article: DictionaryArticle | None = None,
+        exact_article: DictionaryArticle | None = None,
         fail_search: bool = False,
         fail_get: bool = False,
+        fail_exact_get: bool = False,
     ) -> None:
         self.result = result
         self.stored_article = stored_article
+        self.exact_article = exact_article
         self.fail_search = fail_search
         self.fail_get = fail_get
+        self.fail_exact_get = fail_exact_get
         self.search_calls: list[str] = []
         self.get_calls: list[int] = []
+        self.exact_get_calls: list[str] = []
 
     async def search(self, query: str) -> SearchResult:
         self.search_calls.append(query)
@@ -98,6 +104,12 @@ class FakeGateway:
         if self.fail_get:
             raise RuntimeError("database failed")
         return self.stored_article
+
+    async def get_article_by_term(self, term: str) -> DictionaryArticle | None:
+        self.exact_get_calls.append(term)
+        if self.fail_exact_get:
+            raise RuntimeError("database failed")
+        return self.exact_article
 
 
 @dataclass
@@ -132,6 +144,42 @@ async def test_exact_match_sends_escaped_article_without_keyboard() -> None:
     assert message.answers[0][0] == "<b>ПАМЯТЬ &lt;И&gt;</b>\n\nA &amp; B"
     assert "reply_markup" not in message.answers[0][1]
     assert message.answers[0][1]["parse_mode"] is ParseMode.HTML
+
+
+@pytest.mark.asyncio
+async def test_redirect_article_has_button_for_exact_target() -> None:
+    source = article(
+        article_id=1977,
+        term="ЯДЕРНАЯ ПЛОСКОСТЬ",
+        definition="см. Стереопсис.",
+        redirect_to="Стереопсис",
+    )
+    target = article(article_id=1636, term="СТЕРЕОПСИС")
+    result = ExactMatch(source, diagnostics(SearchStrategy.EXACT, 1))
+    gateway = FakeGateway(result=result, exact_article=target)
+    message = FakeMessage(text="ядерная плоскость")
+
+    await handle_text_search(message, gateway)  # type: ignore[arg-type]
+
+    assert gateway.exact_get_calls == ["Стереопсис"]
+    keyboard = message.answers[0][1]["reply_markup"]
+    button = keyboard.inline_keyboard[0][0]
+    assert button.text == "Перейти: СТЕРЕОПСИС"
+    assert button.callback_data == "term:1636"
+
+
+@pytest.mark.asyncio
+async def test_unresolved_redirect_still_sends_article_without_button() -> None:
+    source = article(redirect_to="Несуществующая статья")
+    result = ExactMatch(source, diagnostics(SearchStrategy.EXACT, 1))
+    message = FakeMessage(text="память")
+
+    await handle_text_search(  # type: ignore[arg-type]
+        message,
+        FakeGateway(result=result),
+    )
+
+    assert "reply_markup" not in message.answers[0][1]
 
 
 @pytest.mark.asyncio

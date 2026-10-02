@@ -15,6 +15,7 @@ from app.db.migrate import LATEST_SCHEMA_VERSION, apply_migrations, get_schema_v
 from app.db.repository import DictionaryRepository
 from app.search.fuzzy import FuzzyMatcher
 from app.search.models import DictionaryArticle, SearchResult
+from app.search.normalize import normalize_query
 from app.search.service import SearchService
 
 logger = logging.getLogger("tg_psyco.database")
@@ -119,6 +120,13 @@ class ThreadedSearchGateway:
 
     async def get_article(self, article_id: int) -> DictionaryArticle | None:
         result = await self._run(self._state.repository.get_by_id, article_id)
+        return result  # type: ignore[return-value]
+
+    async def get_article_by_term(self, term: str) -> DictionaryArticle | None:
+        """Resolve a dictionary redirect without invoking fuzzy or FTS search."""
+
+        normalized = normalize_query(term, max_length=max(1, len(term) * 4))
+        result = await self._run(self._state.repository.find_exact, normalized)
         return result  # type: ignore[return-value]
 
     async def is_ready(self) -> bool:

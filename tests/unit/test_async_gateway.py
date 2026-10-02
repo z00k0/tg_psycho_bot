@@ -60,11 +60,14 @@ async def test_gateway_uses_worker_owned_sqlite_connection(
     try:
         result = await gateway.search("ПАМЯТЬ")
         stored = await gateway.get_article(1)
+        exact_alias = await gateway.get_article_by_term("запоминание")
 
         assert isinstance(result, ExactMatch)
         assert result.article.id == 1
         assert stored is not None
         assert stored.definition == "Способность сохранять и воспроизводить опыт."
+        assert exact_alias is not None
+        assert exact_alias.id == 1
         assert await gateway.is_ready() is True
     finally:
         await gateway.close()

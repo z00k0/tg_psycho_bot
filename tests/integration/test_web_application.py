@@ -100,6 +100,9 @@ class FakeGateway:
     async def get_article(self, article_id: int) -> DictionaryArticle | None:
         return None
 
+    async def get_article_by_term(self, term: str) -> DictionaryArticle | None:
+        return None
+
     async def is_ready(self) -> bool:
         return self.ready and not self.closed
 
@@ -274,6 +277,79 @@ async def test_webhook_fuzzy_button_returns_real_definition_without_network(
     assert session.closed is True
     assert session.closed is True
     assert not any(isinstance(method, DeleteWebhook) for method in session.methods)
+
+
+@pytest.mark.asyncio
+async def test_webhook_redirect_button_opens_target_article(
+    workspace_tmp_path: Path,
+) -> None:
+    source = Path(__file__).parents[2] / "psychological_dictionary.json"
+    database_path = workspace_tmp_path / "redirect.sqlite3"
+    import_dictionary_file(source, database_path)
+    configured = settings(database_path)
+    session = RecordingSession()
+    bot = Bot(configured.bot_token, session=session)
+    client = TestClient(TestServer(create_application(configured, bot=bot)))
+    await client.start_server()
+    headers = {"X-Telegram-Bot-Api-Secret-Token": configured.webhook_secret}
+    user = {"id": 42, "is_bot": False, "first_name": "Tester"}
+    chat = {"id": 42, "type": "private"}
+    try:
+        response = await client.post(
+            configured.webhook_path,
+            headers=headers,
+            json={
+                "update_id": 200,
+                "message": {
+                    "message_id": 20,
+                    "date": 1_700_000_000,
+                    "from": user,
+                    "chat": chat,
+                    "text": "ядерная плоскость",
+                },
+            },
+        )
+        assert response.status == 200
+        sent = await wait_for_methods(session, SendMessage, 1)
+        redirect_message = sent[0]
+        assert isinstance(redirect_message, SendMessage)
+        assert redirect_message.reply_markup is not None
+        button = redirect_message.reply_markup.inline_keyboard[0][0]
+        assert button.text == "Перейти: СТЕРЕОПСИС"
+        assert button.callback_data is not None
+
+        callback_response = await client.post(
+            configured.webhook_path,
+            headers=headers,
+            json={
+                "update_id": 201,
+                "callback_query": {
+                    "id": "redirect-callback",
+                    "from": user,
+                    "chat_instance": "test-instance",
+                    "data": button.callback_data,
+                    "message": {
+                        "message_id": 21,
+                        "date": 1_700_000_001,
+                        "from": {
+                            "id": 123456,
+                            "is_bot": True,
+                            "first_name": "Dictionary",
+                        },
+                        "chat": chat,
+                        "text": redirect_message.text,
+                    },
+                },
+            },
+        )
+        assert callback_response.status == 200
+        sent = await wait_for_methods(session, SendMessage, 2)
+        await wait_for_methods(session, AnswerCallbackQuery, 1)
+        assert "СТЕРЕОПСИС" in sent[1].text
+    finally:
+        await client.close()
+
+    assert session.closed is True
 
 
 @pytest.mark.asyncio

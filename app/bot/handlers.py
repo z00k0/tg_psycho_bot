@@ -12,7 +12,7 @@ from aiogram.types import CallbackQuery, Message
 
 from app.bot.callbacks import TermCallback
 from app.bot.formatting import format_article_messages
-from app.bot.keyboards import term_keyboard
+from app.bot.keyboards import redirect_keyboard, term_keyboard
 from app.search.fuzzy import MAX_FUZZY_SUGGESTIONS
 from app.search.models import (
     DictionaryArticle,
@@ -50,10 +50,37 @@ class BotSearchGateway(Protocol):
 
     async def get_article(self, article_id: int) -> DictionaryArticle | None: ...
 
+    async def get_article_by_term(self, term: str) -> DictionaryArticle | None: ...
 
-async def _send_article(target: Message, article: DictionaryArticle) -> None:
-    for text in format_article_messages(article):
-        await target.answer(text, parse_mode=ParseMode.HTML)
+
+async def _send_article(
+    target: Message,
+    article: DictionaryArticle,
+    gateway: BotSearchGateway,
+) -> None:
+    reply_markup = None
+    if article.redirect_to is not None:
+        try:
+            redirect = await gateway.get_article_by_term(article.redirect_to)
+        except Exception as exc:
+            logger.warning(
+                "redirect_lookup_failed",
+                extra={
+                    "event": "redirect_lookup_failed",
+                    "article_id": article.id,
+                    "error_type": type(exc).__name__,
+                },
+            )
+        else:
+            if redirect is not None and redirect.id != article.id:
+                reply_markup = redirect_keyboard(redirect.id, redirect.term)
+
+    messages = format_article_messages(article)
+    for index, text in enumerate(messages):
+        arguments = {"parse_mode": ParseMode.HTML}
+        if reply_markup is not None and index == len(messages) - 1:
+            arguments["reply_markup"] = reply_markup
+        await target.answer(text, **arguments)
 
 
 async def handle_start(message: Message) -> None:
@@ -90,7 +117,7 @@ async def handle_text_search(message: Message, gateway: BotSearchGateway) -> Non
         return
 
     if isinstance(result, ExactMatch):
-        await _send_article(message, result.article)
+        await _send_article(message, result.article, gateway)
         return
     if isinstance(result, FtsMatches):
         keyboard = term_keyboard((article.id, article.term) for article in result.articles)
@@ -139,7 +166,7 @@ async def handle_term_callback(
 
     await callback.answer()
     if callback.message is not None:
-        await _send_article(callback.message, article)
+        await _send_article(callback.message, article, gateway)
 
 
 async def handle_invalid_term_callback(callback: CallbackQuery) -> None:
